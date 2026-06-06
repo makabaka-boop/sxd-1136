@@ -1,0 +1,3 @@
+﻿activity_id,student_id,student_name,activity_date,activity_type,duration_minutes
+ACT_S001_001,S001,小明,2026-06-01,login,30
+ACT_S002_001,S002,小红,2026-06-01,video_watch,60
