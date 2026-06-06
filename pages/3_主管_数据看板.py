@@ -177,7 +177,7 @@ with tab2:
 
 with tab3:
     st.subheader("预警阈值设置")
-    st.markdown("拖动滑块调整预警阈值，风险清单将实时刷新")
+    st.markdown("拖动滑块调整预警阈值，所有页面风险清单将实时刷新")
     
     col1, col2, col3 = st.columns(3)
     
@@ -188,7 +188,8 @@ with tab3:
             max_value=100.0,
             value=st.session_state.thresholds['submission_rate'],
             step=1.0,
-            help="当课程提交率低于此值时触发预警"
+            help="当课程提交率低于此值时触发预警",
+            key='slider_submission_rate'
         )
     
     with col2:
@@ -198,7 +199,8 @@ with tab3:
             max_value=20,
             value=int(st.session_state.thresholds['overdue_count']),
             step=1,
-            help="当学员逾期作业达到此数量时触发预警"
+            help="当学员逾期作业达到此数量时触发预警",
+            key='slider_overdue_count'
         )
     
     with col3:
@@ -208,10 +210,9 @@ with tab3:
             max_value=14,
             value=int(st.session_state.thresholds['grading_delay']),
             step=1,
-            help="当平均批改延迟超过此值时触发预警"
+            help="当平均批改延迟超过此值时触发预警",
+            key='slider_grading_delay'
         )
-    
-    st.write("---")
     
     new_thresholds = {
         'submission_rate': submission_rate_val,
@@ -219,11 +220,15 @@ with tab3:
         'grading_delay': grading_delay_val
     }
     
+    if new_thresholds != st.session_state.thresholds:
+        st.session_state.thresholds = new_thresholds
+    
+    st.write("---")
+    
     col1, col2 = st.columns([1, 1])
     with col1:
         if st.button("💾 保存阈值设置", type="primary"):
             save_thresholds(new_thresholds)
-            st.session_state.thresholds = new_thresholds
             st.success("阈值设置已保存！")
     
     with col2:
@@ -237,9 +242,9 @@ with tab3:
     st.write("---")
     
     st.subheader("实时预览")
-    st.info("调整阈值后，下方风险清单将实时更新")
+    st.info("调整阈值后，「总览看板」「风险清单」「阈值设置」页面将同步更新")
     
-    preview_risks = analyze_risks(new_thresholds)
+    preview_risks = analyze_risks(st.session_state.thresholds)
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("总风险数", preview_risks['total_risks'])

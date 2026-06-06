@@ -27,6 +27,14 @@ with tab1:
         pending = grading_df[grading_df['status'] == 'pending'].copy()
         
         if not pending.empty:
+            if not submissions_df.empty:
+                sub_cols = ['submission_id', 'assignment_id', 'student_id', 'student_name']
+                sub_cols = [c for c in sub_cols if c in submissions_df.columns]
+                pending = pending.merge(
+                    submissions_df[sub_cols], 
+                    on=['assignment_id', 'student_id'] if 'student_id' in pending.columns and 'student_id' in submissions_df.columns else 'assignment_id', 
+                    how='left'
+                )
             if not assignments_df.empty:
                 pending = pending.merge(
                     assignments_df[['assignment_id', 'assignment_name', 'course_id']], 
@@ -49,14 +57,15 @@ with tab1:
                 pending = pending[pending['course_name'] == course_filter]
             
             for idx, row in pending.iterrows():
-                with st.expander(f"📄 {row.get('assignment_name', row['assignment_id'])} - {row['student_name']}"):
+                student_name = row.get('student_name', row.get('student_id', '未知学生'))
+                with st.expander(f"📄 {row.get('assignment_name', row['assignment_id'])} - {student_name}"):
                     col1, col2 = st.columns([2, 1])
                     
                     with col1:
                         st.write(f"**课程:** {row.get('course_name', '未知')}")
                         st.write(f"**作业:** {row.get('assignment_name', row['assignment_id'])}")
-                        st.write(f"**学生:** {row['student_name']}")
-                        st.write(f"**提交ID:** {row['submission_id'] if 'submission_id' in row else 'N/A'}")
+                        st.write(f"**学生:** {student_name}")
+                        st.write(f"**提交ID:** {row.get('submission_id', 'N/A')}")
                     
                     with col2:
                         with st.form(f"grade_form_{row['grading_id']}"):

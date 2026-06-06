@@ -5,7 +5,9 @@ from utils.data_processor import (
     load_courses, save_courses,
     load_assignments, save_assignments,
     load_submissions, save_submissions,
-    load_activity, save_activity
+    load_activity, save_activity,
+    load_grading, save_grading,
+    generate_pending_grading
 )
 from utils.scheduler import generate_sample_data, generate_sample_csv_files
 
@@ -171,7 +173,19 @@ with tab3:
                     else:
                         merged = df
                     save_submissions(merged)
-                    st.success(f"成功导入 {len(df)} 条提交记录")
+                    
+                    new_grading = generate_pending_grading(df)
+                    if not new_grading.empty:
+                        existing_grading = load_grading()
+                        if not existing_grading.empty:
+                            all_grading = pd.concat([existing_grading, new_grading], ignore_index=True)
+                            all_grading = all_grading.drop_duplicates(subset=['grading_id'], keep='first')
+                        else:
+                            all_grading = new_grading
+                        save_grading(all_grading)
+                        st.success(f"成功导入 {len(df)} 条提交记录，自动生成 {len(new_grading)} 条待批改任务")
+                    else:
+                        st.success(f"成功导入 {len(df)} 条提交记录")
                     st.rerun()
             except Exception as e:
                 st.error(f"导入失败: {e}")
@@ -233,8 +247,9 @@ with tab5:
                 save_assignments(pd.DataFrame())
                 save_submissions(pd.DataFrame())
                 save_activity(pd.DataFrame())
+                save_grading(pd.DataFrame())
                 st.session_state['confirm_clear'] = False
-                st.success("✅ 所有数据已清空")
+                st.success("✅ 所有数据已清空（含批改数据）")
                 st.rerun()
             else:
                 st.warning("再次点击确认清空")

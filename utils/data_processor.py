@@ -18,7 +18,11 @@ def load_csv(filepath: str) -> pd.DataFrame:
 
 def save_csv(df: pd.DataFrame, filepath: str):
     ensure_data_dir()
-    df.to_csv(filepath, index=False, encoding='utf-8-sig')
+    if df.empty:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+    else:
+        df.to_csv(filepath, index=False, encoding='utf-8-sig')
 
 def load_courses() -> pd.DataFrame:
     filepath = os.path.join(DATA_DIR, 'courses.csv')
@@ -167,3 +171,33 @@ def calculate_metrics(report_date: Optional[str] = None) -> Dict:
         'active_students': active_students,
         'activity_rate': round(activity_rate, 2)
     }
+
+def generate_pending_grading(submissions_df: pd.DataFrame) -> pd.DataFrame:
+    grading_list = []
+    existing_grading = load_grading()
+    existing_keys = set()
+    if not existing_grading.empty:
+        for _, row in existing_grading.iterrows():
+            key = f"{row['assignment_id']}_{row['student_id']}"
+            existing_keys.add(key)
+    
+    required_cols = ['assignment_id', 'student_id']
+    if not all(col in submissions_df.columns for col in required_cols):
+        return pd.DataFrame()
+    
+    for _, sub in submissions_df.iterrows():
+        key = f"{sub['assignment_id']}_{sub['student_id']}"
+        if key not in existing_keys:
+            grading_list.append({
+                'grading_id': f"GRD_{sub['assignment_id']}_{sub['student_id']}",
+                'assignment_id': sub['assignment_id'],
+                'student_id': sub['student_id'],
+                'grader_id': None,
+                'grader_name': None,
+                'score': None,
+                'status': 'pending',
+                'graded_date': None,
+                'feedback': None
+            })
+    
+    return pd.DataFrame(grading_list)
