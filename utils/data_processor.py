@@ -64,6 +64,75 @@ def save_activity(df: pd.DataFrame):
     filepath = os.path.join(DATA_DIR, 'activity.csv')
     save_csv(df, filepath)
 
+def load_extensions() -> pd.DataFrame:
+    filepath = os.path.join(DATA_DIR, 'extensions.csv')
+    return load_csv(filepath)
+
+def save_extensions(df: pd.DataFrame):
+    filepath = os.path.join(DATA_DIR, 'extensions.csv')
+    save_csv(df, filepath)
+
+def get_effective_due_date(assignment_id: str, student_id: str) -> Optional[str]:
+    assignments = load_assignments()
+    extensions = load_extensions()
+    
+    assignment = assignments[assignments['assignment_id'] == assignment_id]
+    if assignment.empty:
+        return None
+    
+    original_due = assignment.iloc[0]['due_date']
+    
+    if not extensions.empty:
+        ext = extensions[
+            (extensions['assignment_id'] == assignment_id) & 
+            (extensions['student_id'] == student_id) & 
+            (extensions['approval_status'] == 'approved')
+        ]
+        if not ext.empty:
+            return ext.iloc[0]['extended_due_date']
+    
+    return original_due
+
+def get_extension_info(assignment_id: str, student_id: str) -> Optional[Dict]:
+    extensions = load_extensions()
+    if extensions.empty:
+        return None
+    
+    ext = extensions[
+        (extensions['assignment_id'] == assignment_id) & 
+        (extensions['student_id'] == student_id)
+    ]
+    if ext.empty:
+        return None
+    
+    ext_row = ext.iloc[0]
+    return {
+        'has_extension': True,
+        'approval_status': ext_row['approval_status'],
+        'original_due_date': ext_row['original_due_date'],
+        'extended_due_date': ext_row['extended_due_date'],
+        'reason': ext_row.get('reason', ''),
+        'extension_id': ext_row['extension_id']
+    }
+
+def get_extensions_summary() -> Dict:
+    extensions = load_extensions()
+    if extensions.empty:
+        return {
+            'total_extensions': 0,
+            'approved_count': 0,
+            'pending_count': 0,
+            'rejected_count': 0
+        }
+    
+    status_counts = extensions['approval_status'].value_counts().to_dict()
+    return {
+        'total_extensions': len(extensions),
+        'approved_count': status_counts.get('approved', 0),
+        'pending_count': status_counts.get('pending', 0),
+        'rejected_count': status_counts.get('rejected', 0)
+    }
+
 def load_cache() -> Dict:
     if os.path.exists(CACHE_FILE):
         with open(CACHE_FILE, 'r', encoding='utf-8') as f:
@@ -140,10 +209,24 @@ def calculate_metrics(report_date: Optional[str] = None) -> Dict:
     overdue_count = 0
     if not submissions.empty and 'submission_date' in submissions.columns and 'due_date' in assignments.columns:
         merged = submissions.merge(assignments[['assignment_id', 'due_date']], on='assignment_id', how='left')
+        extensions = load_extensions()
+        if not extensions.empty and not merged.empty:
+            approved_ext = extensions[extensions['approval_status'] == 'approved'][
+                ['assignment_id', 'student_id', 'extended_due_date']
+            ]
+            merged = merged.merge(
+                approved_ext, 
+                on=['assignment_id', 'student_id'], 
+                how='left'
+            )
+            merged['effective_due_date'] = merged['extended_due_date'].fillna(merged['due_date'])
+        else:
+            merged['effective_due_date'] = merged['due_date']
+        
         if not merged.empty:
             merged['submission_date'] = pd.to_datetime(merged['submission_date'])
-            merged['due_date'] = pd.to_datetime(merged['due_date'])
-            overdue_count = len(merged[merged['submission_date'] > merged['due_date']])
+            merged['effective_due_date'] = pd.to_datetime(merged['effective_due_date'])
+            overdue_count = len(merged[merged['submission_date'] > merged['effective_due_date']])
     
     avg_grading_delay = 0.0
     if not grading.empty and 'graded_date' in grading.columns and 'submission_date' in submissions.columns:
@@ -158,6 +241,8 @@ def calculate_metrics(report_date: Optional[str] = None) -> Dict:
     active_students = activity['student_id'].nunique() if not activity.empty else 0
     activity_rate = (active_students / total_students) * 100 if total_students > 0 else 0
     
+    extensions_summary = get_extensions_summary()
+    
     return {
         'report_date': report_date,
         'total_courses': total_courses,
@@ -169,7 +254,11 @@ def calculate_metrics(report_date: Optional[str] = None) -> Dict:
         'overdue_count': overdue_count,
         'avg_grading_delay': round(avg_grading_delay, 2),
         'active_students': active_students,
-        'activity_rate': round(activity_rate, 2)
+        'activity_rate': round(activity_rate, 2),
+        'total_extensions': extensions_summary['total_extensions'],
+        'approved_extensions': extensions_summary['approved_count'],
+        'pending_extensions': extensions_summary['pending_count'],
+        'rejected_extensions': extensions_summary['rejected_count']
     }
 
 def generate_pending_grading(submissions_df: pd.DataFrame) -> pd.DataFrame:

@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import random
 from utils.data_processor import (
     save_courses, save_assignments, save_submissions, 
-    save_grading, save_activity, ensure_data_dir
+    save_grading, save_activity, save_extensions, ensure_data_dir
 )
 from utils.report_generator import generate_daily_report
 
@@ -105,6 +105,65 @@ def generate_sample_data():
     save_grading(pd.DataFrame(grading_data))
     save_activity(pd.DataFrame(activity_data))
     
+    extensions_data = [
+        {
+            'extension_id': 'EXT_S001_A003_001',
+            'assignment_id': 'A003',
+            'student_id': 'S001',
+            'student_name': '小明',
+            'reason': '生病请假，需要延期提交',
+            'original_due_date': '2026-06-05',
+            'extended_due_date': '2026-06-12',
+            'approval_status': 'approved',
+            'created_at': '2026-06-03 10:00:00'
+        },
+        {
+            'extension_id': 'EXT_S003_A002_001',
+            'assignment_id': 'A002',
+            'student_id': 'S003',
+            'student_name': '小刚',
+            'reason': '参加比赛，时间冲突',
+            'original_due_date': '2026-05-20',
+            'extended_due_date': '2026-05-25',
+            'approval_status': 'approved',
+            'created_at': '2026-05-18 14:30:00'
+        },
+        {
+            'extension_id': 'EXT_S005_A004_001',
+            'assignment_id': 'A004',
+            'student_id': 'S005',
+            'student_name': '小华',
+            'reason': '家里有事，申请延期',
+            'original_due_date': '2026-05-25',
+            'extended_due_date': '2026-06-01',
+            'approval_status': 'pending',
+            'created_at': '2026-05-24 09:15:00'
+        },
+        {
+            'extension_id': 'EXT_S007_A005_001',
+            'assignment_id': 'A005',
+            'student_id': 'S007',
+            'student_name': '小美',
+            'reason': '项目赶工，需要更多时间',
+            'original_due_date': '2026-06-10',
+            'extended_due_date': '2026-06-17',
+            'approval_status': 'pending',
+            'created_at': '2026-06-08 16:45:00'
+        },
+        {
+            'extension_id': 'EXT_S002_A001_001',
+            'assignment_id': 'A001',
+            'student_id': 'S002',
+            'student_name': '小红',
+            'reason': '申请延期但理由不充分',
+            'original_due_date': '2026-05-10',
+            'extended_due_date': '2026-05-17',
+            'approval_status': 'rejected',
+            'created_at': '2026-05-09 11:20:00'
+        }
+    ]
+    save_extensions(pd.DataFrame(extensions_data))
+    
     print("✅ 示例数据已生成")
 
 def simulate_daily_import():
@@ -197,5 +256,11 @@ def generate_sample_csv_files():
         {'activity_id': 'ACT_S002_001', 'student_id': 'S002', 'student_name': '小红', 'activity_date': '2026-06-01', 'activity_type': 'video_watch', 'duration_minutes': 60},
     ])
     activity_sample.to_csv(os.path.join(SAMPLES_DIR, 'activity_sample.csv'), index=False, encoding='utf-8-sig')
+    
+    extensions_sample = pd.DataFrame([
+        {'extension_id': 'EXT_S001_A001_001', 'assignment_id': 'A001', 'student_id': 'S001', 'student_name': '小明', 'reason': '生病请假，需要延期提交', 'original_due_date': '2026-05-10', 'extended_due_date': '2026-05-17', 'approval_status': 'approved', 'created_at': '2026-05-08 10:00:00'},
+        {'extension_id': 'EXT_S002_A001_001', 'assignment_id': 'A001', 'student_id': 'S002', 'student_name': '小红', 'reason': '家里有事，申请延期', 'original_due_date': '2026-05-10', 'extended_due_date': '2026-05-15', 'approval_status': 'pending', 'created_at': '2026-05-09 14:30:00'},
+    ])
+    extensions_sample.to_csv(os.path.join(SAMPLES_DIR, 'extensions_sample.csv'), index=False, encoding='utf-8-sig')
     
     print(f"✅ 示例CSV文件已生成到 {SAMPLES_DIR}")

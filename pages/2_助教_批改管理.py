@@ -3,7 +3,8 @@ import pandas as pd
 from datetime import datetime
 from utils.data_processor import (
     load_grading, save_grading,
-    load_submissions, load_assignments, load_courses
+    load_submissions, load_assignments, load_courses,
+    get_extension_info
 )
 
 st.set_page_config(page_title="助教 - 批改管理", layout="wide")
@@ -58,7 +59,17 @@ with tab1:
             
             for idx, row in pending.iterrows():
                 student_name = row.get('student_name', row.get('student_id', '未知学生'))
-                with st.expander(f"📄 {row.get('assignment_name', row['assignment_id'])} - {student_name}"):
+                assignment_id = row['assignment_id']
+                student_id = row['student_id']
+                
+                ext_info = get_extension_info(assignment_id, student_id)
+                ext_badge = ""
+                if ext_info and ext_info['approval_status'] == 'approved':
+                    ext_badge = " 📅 [已延期]"
+                elif ext_info and ext_info['approval_status'] == 'pending':
+                    ext_badge = " ⏳ [待审批]"
+                
+                with st.expander(f"📄 {row.get('assignment_name', row['assignment_id'])} - {student_name}{ext_badge}"):
                     col1, col2 = st.columns([2, 1])
                     
                     with col1:
@@ -66,6 +77,19 @@ with tab1:
                         st.write(f"**作业:** {row.get('assignment_name', row['assignment_id'])}")
                         st.write(f"**学生:** {student_name}")
                         st.write(f"**提交ID:** {row.get('submission_id', 'N/A')}")
+                        
+                        if ext_info:
+                            st.write("---")
+                            if ext_info['approval_status'] == 'approved':
+                                st.success(f"📅 已批准延期: 原截止 {ext_info['original_due_date']} → 延期至 {ext_info['extended_due_date']}")
+                                if ext_info.get('reason'):
+                                    st.caption(f"延期原因: {ext_info['reason']}")
+                            elif ext_info['approval_status'] == 'pending':
+                                st.warning(f"⏳ 延期待审批: 申请延期至 {ext_info['extended_due_date']}")
+                                if ext_info.get('reason'):
+                                    st.caption(f"申请原因: {ext_info['reason']}")
+                            else:
+                                st.error(f"❌ 延期申请已被拒绝")
                     
                     with col2:
                         with st.form(f"grade_form_{row['grading_id']}"):
@@ -110,7 +134,22 @@ with tab2:
         
         st.write(f"共批改 **{len(graded)}** 份作业")
         
-        display_cols = [col for col in ['assignment_name', 'course_name', 'student_name', 'score', 'feedback', 'graded_date', 'grader_name'] if col in graded.columns]
+        extensions_loaded = __import__('utils.data_processor', fromlist=['load_extensions']).load_extensions()
+        if not extensions_loaded.empty:
+            approved_ext = extensions_loaded[extensions_loaded['approval_status'] == 'approved'][
+                ['assignment_id', 'student_id', 'extended_due_date', 'reason']
+            ]
+            graded = graded.merge(
+                approved_ext,
+                on=['assignment_id', 'student_id'],
+                how='left'
+            )
+            graded['延期说明'] = graded.apply(
+                lambda x: f"已延期至 {x['extended_due_date']}" if pd.notna(x['extended_due_date']) else "无",
+                axis=1
+            )
+        
+        display_cols = [col for col in ['assignment_name', 'course_name', 'student_name', 'score', 'feedback', 'graded_date', 'grader_name', '延期说明'] if col in graded.columns]
         st.dataframe(graded[display_cols], use_container_width=True, hide_index=True)
         
         col1, col2 = st.columns(2)

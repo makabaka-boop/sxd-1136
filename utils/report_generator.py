@@ -2,7 +2,7 @@ import os
 import pandas as pd
 from datetime import datetime
 from jinja2 import Template
-from utils.data_processor import calculate_metrics
+from utils.data_processor import calculate_metrics, load_extensions, load_assignments
 from utils.risk_analyzer import analyze_risks, get_risk_summary
 
 REPORTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'reports')
@@ -160,6 +160,18 @@ REPORT_TEMPLATE = """
                 <h3>活跃学员</h3>
                 <div class="value">{{ metrics.active_students }}<span class="unit">/{{ metrics.total_students }}</span></div>
             </div>
+            <div class="metric-card">
+                <h3>延期申请</h3>
+                <div class="value">{{ metrics.total_extensions }}<span class="unit">份</span></div>
+            </div>
+            <div class="metric-card">
+                <h3>已批准延期</h3>
+                <div class="value">{{ metrics.approved_extensions }}<span class="unit">份</span></div>
+            </div>
+            <div class="metric-card">
+                <h3>待审批延期</h3>
+                <div class="value">{{ metrics.pending_extensions }}<span class="unit">份</span></div>
+            </div>
         </div>
 
         <div class="section">
@@ -201,6 +213,46 @@ REPORT_TEMPLATE = """
                 </table>
             {% else %}
                 <p style="color: #27ae60;">✅ 当前无风险项，一切正常！</p>
+            {% endif %}
+        </div>
+
+        <div class="section">
+            <h2>📅 延期申请详情</h2>
+            {% if extensions_list %}
+                <table>
+                    <thead>
+                        <tr>
+                            <th>学员</th>
+                            <th>作业</th>
+                            <th>申请原因</th>
+                            <th>原截止时间</th>
+                            <th>延期后截止</th>
+                            <th>审批状态</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for ext in extensions_list %}
+                        <tr>
+                            <td>{{ ext.student_name }}</td>
+                            <td>{{ ext.assignment_name }}</td>
+                            <td>{{ ext.reason }}</td>
+                            <td>{{ ext.original_due_date }}</td>
+                            <td>{{ ext.extended_due_date }}</td>
+                            <td>
+                                {% if ext.approval_status == 'approved' %}
+                                    <span class="badge badge-high" style="background: #e8f5e9; color: #27ae60;">已批准</span>
+                                {% elif ext.approval_status == 'pending' %}
+                                    <span class="badge badge-medium">待审批</span>
+                                {% else %}
+                                    <span class="badge badge-high">已拒绝</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p style="color: #666;">暂无延期申请记录</p>
             {% endif %}
         </div>
 
@@ -248,13 +300,33 @@ def generate_daily_report(report_date: str = None) -> str:
     
     risks['all_risks'] = risk_list
     
+    extensions = load_extensions()
+    assignments = load_assignments()
+    extensions_list = []
+    if not extensions.empty:
+        ext_with_assign = extensions.merge(
+            assignments[['assignment_id', 'assignment_name']], 
+            on='assignment_id', 
+            how='left'
+        )
+        for _, ext in ext_with_assign.iterrows():
+            extensions_list.append({
+                'student_name': ext.get('student_name', ext['student_id']),
+                'assignment_name': ext.get('assignment_name', ext['assignment_id']),
+                'reason': ext.get('reason', ''),
+                'original_due_date': ext['original_due_date'],
+                'extended_due_date': ext['extended_due_date'],
+                'approval_status': ext['approval_status']
+            })
+    
     template = Template(REPORT_TEMPLATE)
     html_content = template.render(
         report_date=report_date,
         generated_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         metrics=metrics,
         risks=risks,
-        thresholds=thresholds
+        thresholds=thresholds,
+        extensions_list=extensions_list
     )
     
     ensure_reports_dir()

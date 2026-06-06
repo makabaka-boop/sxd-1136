@@ -7,8 +7,10 @@ from utils.data_processor import (
     load_submissions, save_submissions,
     load_activity, save_activity,
     load_grading, save_grading,
+    load_extensions, save_extensions,
     generate_pending_grading
 )
+from datetime import datetime
 from utils.scheduler import generate_sample_data, generate_sample_csv_files
 
 st.set_page_config(page_title="管理员 - 数据管理", layout="wide")
@@ -16,11 +18,12 @@ st.set_page_config(page_title="管理员 - 数据管理", layout="wide")
 st.title("🔧 管理员控制台")
 st.markdown("管理课程、作业和学生数据")
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📚 课程管理", 
     "📝 作业管理", 
     "📤 提交记录管理",
     "👥 活跃度管理",
+    "📅 延期管理",
     "⚡ 快速操作"
 ])
 
@@ -224,6 +227,163 @@ with tab4:
                 st.error(f"导入失败: {e}")
 
 with tab5:
+    st.subheader("延期申请管理")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.write("### 延期申请列表")
+        extensions_df = load_extensions()
+        assignments_df = load_assignments()
+        
+        if not extensions_df.empty:
+            if not assignments_df.empty:
+                extensions_display = extensions_df.merge(
+                    assignments_df[['assignment_id', 'assignment_name', 'course_id']], 
+                    on='assignment_id', 
+                    how='left'
+                )
+            else:
+                extensions_display = extensions_df.copy()
+            
+            status_map = {
+                'pending': '待审批',
+                'approved': '已批准',
+                'rejected': '已拒绝'
+            }
+            extensions_display['审批状态'] = extensions_display['approval_status'].map(status_map)
+            
+            display_cols = [col for col in [
+                'extension_id', 'student_name', 'assignment_name', 
+                'reason', 'original_due_date', 'extended_due_date', 
+                '审批状态', 'created_at'
+            ] if col in extensions_display.columns]
+            
+            st.dataframe(extensions_display[display_cols], use_container_width=True, hide_index=True)
+        else:
+            st.info("暂无延期申请记录")
+    
+    with col2:
+        st.write("### 录入延期申请")
+        
+        assignments = load_assignments()
+        submissions = load_submissions()
+        
+        if not assignments.empty and not submissions.empty:
+            with st.form("add_extension_form"):
+                student_options = []
+                for _, sub in submissions.iterrows():
+                    label = f"{sub['student_name']} ({sub['student_id']})"
+                    if label not in [opt['label'] for opt in student_options]:
+                        student_options.append({
+                            'label': label,
+                            'student_id': sub['student_id'],
+                            'student_name': sub['student_name']
+                        })
+                
+                selected_student = st.selectbox(
+                    "选择学员",
+                    options=[opt['label'] for opt in student_options],
+                    key='ext_student'
+                )
+                student_info = next((opt for opt in student_options if opt['label'] == selected_student), None)
+                
+                assignment_options = []
+                for _, assign in assignments.iterrows():
+                    assignment_options.append({
+                        'label': f"{assign['assignment_name']} ({assign['assignment_id']})",
+                        'assignment_id': assign['assignment_id'],
+                        'assignment_name': assign['assignment_name'],
+                        'due_date': assign['due_date']
+                    })
+                
+                selected_assignment = st.selectbox(
+                    "选择作业",
+                    options=[opt['label'] for opt in assignment_options],
+                    key='ext_assignment'
+                )
+                assignment_info = next((opt for opt in assignment_options if opt['label'] == selected_assignment), None)
+                
+                reason = st.text_area("申请原因", key='ext_reason')
+                
+                original_due = st.date_input(
+                    "原截止时间",
+                    value=datetime.strptime(assignment_info['due_date'], '%Y-%m-%d').date() if assignment_info else datetime.now().date(),
+                    key='ext_original_due'
+                )
+                
+                extended_due = st.date_input(
+                    "延期后截止时间",
+                    value=datetime.now().date(),
+                    key='ext_extended_due'
+                )
+                
+                approval_status = st.selectbox(
+                    "审批状态",
+                    options=['pending', 'approved', 'rejected'],
+                    format_func=lambda x: {'pending': '待审批', 'approved': '已批准', 'rejected': '已拒绝'}[x],
+                    key='ext_status'
+                )
+                
+                submitted = st.form_submit_button("提交延期申请", type="primary")
+                
+                if submitted and student_info and assignment_info:
+                    extension_id = f"EXT_{student_info['student_id']}_{assignment_info['assignment_id']}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                    
+                    new_extension = pd.DataFrame([{
+                        'extension_id': extension_id,
+                        'assignment_id': assignment_info['assignment_id'],
+                        'student_id': student_info['student_id'],
+                        'student_name': student_info['student_name'],
+                        'reason': reason,
+                        'original_due_date': str(original_due),
+                        'extended_due_date': str(extended_due),
+                        'approval_status': approval_status,
+                        'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    }])
+                    
+                    existing = load_extensions()
+                    if not existing.empty:
+                        merged = pd.concat([existing, new_extension], ignore_index=True)
+                    else:
+                        merged = new_extension
+                    save_extensions(merged)
+                    st.success("延期申请已提交！")
+                    st.rerun()
+        else:
+            st.warning("请先导入作业和提交数据")
+    
+    if not extensions_df.empty:
+        st.write("---")
+        st.write("### 批量审批")
+        
+        pending_ext = extensions_df[extensions_df['approval_status'] == 'pending']
+        if not pending_ext.empty:
+            for _, ext in pending_ext.iterrows():
+                with st.expander(f"⏳ {ext['student_name']} - {ext['assignment_id']}"):
+                    col_a, col_b, col_c = st.columns([2, 1, 1])
+                    with col_a:
+                        st.write(f"**申请原因:** {ext.get('reason', '无')}")
+                        st.write(f"**原截止时间:** {ext['original_due_date']}")
+                        st.write(f"**延期后截止:** {ext['extended_due_date']}")
+                    with col_b:
+                        if st.button("✅ 批准", key=f"approve_{ext['extension_id']}", type="primary"):
+                            extensions = load_extensions()
+                            extensions.loc[extensions['extension_id'] == ext['extension_id'], 'approval_status'] = 'approved'
+                            save_extensions(extensions)
+                            st.success("已批准")
+                            st.rerun()
+                    with col_c:
+                        if st.button("❌ 拒绝", key=f"reject_{ext['extension_id']}"):
+                            extensions = load_extensions()
+                            extensions.loc[extensions['extension_id'] == ext['extension_id'], 'approval_status'] = 'rejected'
+                            save_extensions(extensions)
+                            st.success("已拒绝")
+                            st.rerun()
+        else:
+            st.info("暂无待审批的延期申请")
+
+with tab6:
     st.subheader("快速操作")
     
     col1, col2 = st.columns(2)
@@ -248,8 +408,9 @@ with tab5:
                 save_submissions(pd.DataFrame())
                 save_activity(pd.DataFrame())
                 save_grading(pd.DataFrame())
+                save_extensions(pd.DataFrame())
                 st.session_state['confirm_clear'] = False
-                st.success("✅ 所有数据已清空（含批改数据）")
+                st.success("✅ 所有数据已清空（含批改、延期数据）")
                 st.rerun()
             else:
                 st.warning("再次点击确认清空")

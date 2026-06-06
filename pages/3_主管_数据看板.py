@@ -78,7 +78,7 @@ with tab1:
         st.metric(
             "逾期作业数", 
             metrics['overdue_count'],
-            help="超过截止日期提交的作业数量"
+            help="超过截止日期提交的作业数量（已考虑批准延期）"
         )
         overdue_threshold = st.session_state.thresholds['overdue_count']
         if metrics['overdue_count'] >= overdue_threshold:
@@ -93,6 +93,41 @@ with tab1:
         delay_threshold = st.session_state.thresholds['grading_delay']
         if metrics['avg_grading_delay'] > delay_threshold:
             st.error(f"⚠️ 超过阈值 {delay_threshold} 天")
+    
+    st.write("---")
+    
+    col_a, col_b, col_c, col_d = st.columns(4)
+    
+    with col_a:
+        st.metric(
+            "延期申请总数", 
+            metrics.get('total_extensions', 0),
+            help="所有延期申请记录数量"
+        )
+    
+    with col_b:
+        st.metric(
+            "已批准延期", 
+            metrics.get('approved_extensions', 0),
+            delta_color="normal",
+            help="已批准的延期申请数量"
+        )
+    
+    with col_c:
+        st.metric(
+            "待审批延期", 
+            metrics.get('pending_extensions', 0),
+            delta_color="off",
+            help="等待审批的延期申请数量"
+        )
+    
+    with col_d:
+        st.metric(
+            "已拒绝延期", 
+            metrics.get('rejected_extensions', 0),
+            delta_color="inverse",
+            help="已拒绝的延期申请数量"
+        )
     
     st.write("---")
     
@@ -137,13 +172,27 @@ with tab2:
     
     risks = analyze_risks(st.session_state.thresholds)
     
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("总风险数", risks['total_risks'])
     with col2:
         st.metric("高风险", risks['high_risk_count'], delta_color="inverse")
     with col3:
         st.metric("中风险", risks['medium_risk_count'], delta_color="inverse")
+    with col4:
+        ext_summary = risks.get('extensions_summary', {})
+        st.metric("待审批延期", ext_summary.get('pending_count', 0))
+    
+    st.write("---")
+    
+    st.subheader("📅 延期统计概览")
+    col_a, col_b, col_c = st.columns(3)
+    with col_a:
+        st.info(f"📋 延期申请总数: {ext_summary.get('total_extensions', 0)}")
+    with col_b:
+        st.success(f"✅ 已批准延期: {ext_summary.get('approved_count', 0)}")
+    with col_c:
+        st.warning(f"⏳ 待审批延期: {ext_summary.get('pending_count', 0)}")
     
     st.write("---")
     
@@ -152,6 +201,9 @@ with tab2:
         st.dataframe(risk_df, use_container_width=True, hide_index=True)
         
         st.write("### 高风险详情")
+        from utils.data_processor import load_extensions
+        extensions_df = load_extensions()
+        
         for risk in risks['high_risks']:
             with st.expander(f"🔴 {risk['message']} - {_get_object_name_short(risk)}"):
                 col1, col2, col3, col4 = st.columns(4)
@@ -163,6 +215,18 @@ with tab2:
                     st.write("**阈值:**", risk['threshold'])
                 with col4:
                     st.write("**风险等级:** 高")
+                
+                if risk['type'] == 'student_overdue' and 'student_id' in risk and not extensions_df.empty:
+                    st.write("---")
+                    st.write("**该学员延期申请记录:**")
+                    student_ext = extensions_df[extensions_df['student_id'] == risk['student_id']]
+                    if not student_ext.empty:
+                        ext_display = student_ext[['assignment_id', 'original_due_date', 'extended_due_date', 'approval_status', 'reason']].copy()
+                        status_map = {'pending': '待审批', 'approved': '已批准', 'rejected': '已拒绝'}
+                        ext_display['审批状态'] = ext_display['approval_status'].map(status_map)
+                        st.dataframe(ext_display[['assignment_id', 'original_due_date', 'extended_due_date', '审批状态', 'reason']], use_container_width=True, hide_index=True)
+                    else:
+                        st.caption("该学员暂无延期申请记录")
     else:
         st.success("✅ 当前无风险项，一切正常！")
     

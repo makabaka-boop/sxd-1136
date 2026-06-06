@@ -3,7 +3,8 @@ from typing import Dict, List, Tuple
 from datetime import datetime
 from utils.data_processor import (
     load_courses, load_assignments, load_submissions, 
-    load_grading, load_activity, load_thresholds
+    load_grading, load_activity, load_thresholds,
+    load_extensions, get_extensions_summary
 )
 
 def analyze_risks(thresholds: Dict = None) -> Dict:
@@ -50,10 +51,24 @@ def analyze_risks(thresholds: Dict = None) -> Dict:
     if not submissions.empty and not assignments.empty:
         merged = submissions.merge(assignments[['assignment_id', 'assignment_name', 'due_date', 'course_id']], 
                                on='assignment_id', how='left')
+        extensions = load_extensions()
+        if not extensions.empty and not merged.empty:
+            approved_ext = extensions[extensions['approval_status'] == 'approved'][
+                ['assignment_id', 'student_id', 'extended_due_date']
+            ]
+            merged = merged.merge(
+                approved_ext, 
+                on=['assignment_id', 'student_id'], 
+                how='left'
+            )
+            merged['effective_due_date'] = merged['extended_due_date'].fillna(merged['due_date'])
+        else:
+            merged['effective_due_date'] = merged['due_date']
+        
         if not merged.empty:
             merged['submission_date'] = pd.to_datetime(merged['submission_date'])
-            merged['due_date'] = pd.to_datetime(merged['due_date'])
-            merged['is_overdue'] = merged['submission_date'] > merged['due_date']
+            merged['effective_due_date'] = pd.to_datetime(merged['effective_due_date'])
+            merged['is_overdue'] = merged['submission_date'] > merged['effective_due_date']
             
             student_overdue = merged.groupby('student_id').agg(
                 overdue_count=('is_overdue', 'sum'),
@@ -123,6 +138,8 @@ def analyze_risks(thresholds: Dict = None) -> Dict:
     high_risk = [item for item in risk_items if item['level'] == 'high']
     medium_risk = [item for item in risk_items if item['level'] == 'medium']
     
+    extensions_summary = get_extensions_summary()
+    
     return {
         'total_risks': len(risk_items),
         'high_risk_count': len(high_risk),
@@ -130,7 +147,8 @@ def analyze_risks(thresholds: Dict = None) -> Dict:
         'high_risks': high_risk,
         'medium_risks': medium_risk,
         'all_risks': risk_items,
-        'thresholds_used': thresholds
+        'thresholds_used': thresholds,
+        'extensions_summary': extensions_summary
     }
 
 def get_risk_summary(risks: Dict) -> pd.DataFrame:
